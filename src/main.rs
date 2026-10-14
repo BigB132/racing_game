@@ -192,7 +192,7 @@ fn controls(
         }
     } else {
         for mut wheel in &mut wheels {
-            wheel.steer_angle = 0.0_f32.to_radians();;
+            wheel.steer_angle = 0.0_f32.to_radians();
         }
     }
     if keys.just_pressed(KeyCode::KeyR) {

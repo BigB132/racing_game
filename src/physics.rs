@@ -239,8 +239,8 @@ fn tick_physics (
 }
 
 fn log_data (
-    mut wheels: Query<&mut Wheel>,
-    mut car: Single<&mut Car>,
+    wheels: Query<&mut Wheel>,
+
     mut car_transform: Single<&mut Transform, With<Car>>,
 ) {
     info!("pos: {}", car_transform.translation);
