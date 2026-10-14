@@ -16,6 +16,8 @@ fn main() {
         .run();
 }
 
+#[derive(Component)]
+pub struct SceneEntity;
 
 #[derive(Component)]
 pub struct Player;
@@ -63,6 +65,7 @@ fn setup_scene(
 ) {
     // Ground Plane
     commands.spawn((
+        SceneEntity,
         Ground,
         Mesh3d(meshes.add(Plane3d::default().mesh().size(30.0, 30.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.25, 0.45, 0.25))),
@@ -71,6 +74,7 @@ fn setup_scene(
 
     // Car
     commands.spawn((
+        SceneEntity,
         Car::default(),
         Player,
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
@@ -80,6 +84,7 @@ fn setup_scene(
 
     // FL
     commands.spawn((
+        SceneEntity,
         Wheel {
             side: 0,
             front: 0,
@@ -92,6 +97,7 @@ fn setup_scene(
 
     // FR
     commands.spawn((
+        SceneEntity,
         Wheel {
             side: 1,
             front: 0,
@@ -104,6 +110,7 @@ fn setup_scene(
 
     // RL
     commands.spawn((
+        SceneEntity,
         Wheel {
             side: 0,
             front: 1,
@@ -116,6 +123,7 @@ fn setup_scene(
 
     // RR
     commands.spawn((
+        SceneEntity,
         Wheel {
             side: 1,
             front: 1,
@@ -128,12 +136,14 @@ fn setup_scene(
 
     // Camera
     commands.spawn((
+        SceneEntity,
         Camera3d::default(),
         Transform::from_xyz(10.0, 5.0, 10.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)),
     ));
 
     // Sun
     commands.spawn((
+        SceneEntity,
         DirectionalLight {
             shadow_maps_enabled: true,
             illuminance: 10_000.0,
@@ -144,10 +154,12 @@ fn setup_scene(
 }
 
 fn controls(
-    // mut commands: Commands,
+    mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     mut wheels: Query<&mut Wheel>,
-) {
+    scene_entities: Query<Entity, With<SceneEntity>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,) {
     if keys.pressed(KeyCode::KeyW) {
         for mut wheel in &mut wheels {
             wheel.t_drive = 300.0;
@@ -181,6 +193,14 @@ fn controls(
     } else {
         for mut wheel in &mut wheels {
             wheel.steer_angle = 0.0_f32.to_radians();;
+        }
+    }
+    if keys.just_pressed(KeyCode::KeyR) {
+        if keys.just_pressed(KeyCode::KeyR) {
+            for entity in &scene_entities {
+                commands.entity(entity).despawn();
+            }
+            setup_scene(commands, meshes, materials);
         }
     }
 }
