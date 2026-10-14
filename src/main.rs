@@ -1,16 +1,18 @@
-use bevy::{prelude::*, math::Quat};
+use bevy::prelude::*;
 
 
 mod physics;
 
 use physics::PhysicsPlugin;
 
+use crate::physics::R;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(PhysicsPlugin)
         .add_systems(Startup, setup_scene)
-        // .add_systems(Update, move_player)
+        .add_systems(Update, controls)
         .run();
 }
 
@@ -18,18 +20,16 @@ fn main() {
 #[derive(Component)]
 pub struct Player;
 
-#[derive(Component)]
-pub struct Car {
+#[derive(Component, Default)]
+    pub struct Car {
     pub v_car: Vec3,
-    pub p_car: Vec3,
     pub q_car: Quat,
     pub w_car: Vec3,
     pub r_car: Vec3,
 }
 
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct Wheel {
-    pub car: Car,
     pub side: u8,
     pub front: u8,
     pub x: f32,
@@ -69,17 +69,67 @@ fn setup_scene(
         Transform::default(),
     ));
 
-    // Player
+    // Car
     commands.spawn((
+        Car::default(),
         Player,
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 0.5, 5.0),
-    ));
-
-    commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.8, 0.2, 0.2))),
         Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
+
+    // FL
+    commands.spawn((
+        Wheel {
+            side: 0,
+            front: 0,
+            ..default()
+        },
+        Mesh3d(meshes.add(Cylinder::new(R, 0.4))),
+        MeshMaterial3d(materials.add(Color::srgb(0.1, 0.1, 0.1))),
+        Transform::from_xyz(1.0, 0.5, 1.0).with_rotation(Quat::from_rotation_z(90.0_f32.to_radians())),
+    ));
+
+    // FR
+    commands.spawn((
+        Wheel {
+            side: 1,
+            front: 0,
+            ..default()
+        },
+        Mesh3d(meshes.add(Cylinder::new(R, 0.4))),
+        MeshMaterial3d(materials.add(Color::srgb(0.1, 0.1, 0.1))),
+        Transform::from_xyz(-1.0, 0.5, 1.0).with_rotation(Quat::from_rotation_z(-90.0_f32.to_radians())),
+    ));
+
+    // RL
+    commands.spawn((
+        Wheel {
+            side: 0,
+            front: 1,
+            ..default()
+        },
+        Mesh3d(meshes.add(Cylinder::new(R, 0.4))),
+        MeshMaterial3d(materials.add(Color::srgb(0.1, 0.1, 0.1))),
+        Transform::from_xyz(1.0, 0.5, -1.0).with_rotation(Quat::from_rotation_z(90.0_f32.to_radians())),
+    ));
+
+    // RR
+    commands.spawn((
+        Wheel {
+            side: 1,
+            front: 1,
+            ..default()
+        },
+        Mesh3d(meshes.add(Cylinder::new(R, 0.4))),
+        MeshMaterial3d(materials.add(Color::srgb(0.1, 0.1, 0.1))),
+        Transform::from_xyz(-1.0, 0.5, -1.0).with_rotation(Quat::from_rotation_z(-90.0_f32.to_radians())),
+    ));
+
+    // Camera
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(10.0, 5.0, 10.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)),
     ));
 
     // Sun
@@ -91,4 +141,46 @@ fn setup_scene(
         },
         Transform::from_xyz(8.0, 16.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+}
+
+fn controls(
+    // mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut wheels: Query<&mut Wheel>,
+) {
+    if keys.pressed(KeyCode::KeyW) {
+        for mut wheel in &mut wheels {
+            wheel.t_drive = 300.0;
+        }
+    } else {
+        for mut wheel in &mut wheels {
+            wheel.t_drive = 0.0;
+        }
+    }
+    if keys.pressed(KeyCode::KeyS) {
+        for mut wheel in &mut wheels {
+            wheel.t_break = 800.0;
+        }
+    } else {
+        for mut wheel in &mut wheels {
+            wheel.t_break = 0.0;
+        }
+    }
+    if keys.pressed(KeyCode::KeyA) {
+        for mut wheel in &mut wheels {
+            if wheel.front == 0 {
+                wheel.steer_angle = 40.0_f32.to_radians();
+            }
+        }
+    } else if keys.pressed(KeyCode::KeyD) {
+        for mut wheel in &mut wheels {
+            if wheel.front == 0 {
+                wheel.steer_angle = -40.0_f32.to_radians();
+            }
+        }
+    } else {
+        for mut wheel in &mut wheels {
+            wheel.steer_angle = 0.0_f32.to_radians();;
+        }
+    }
 }

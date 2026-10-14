@@ -1,4 +1,6 @@
-use bevy::{math::Quat, prelude::*};
+use std::time::Duration;
+
+use bevy::{math::Quat, prelude::*, time::common_conditions::on_timer};
 use crate::{Car, Wheel, Ground};
 
 pub struct PhysicsPlugin;
@@ -6,7 +8,12 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app
-            .add_systems(FixedUpdate, tick_physics);
+            .add_systems(FixedUpdate, (
+                tick_physics,
+                log_data.run_if(on_timer(Duration::from_secs(1)))
+        ))
+            .insert_resource(Time::<Fixed>::from_hz(500.0));
+            
     }
 }
 
@@ -43,8 +50,9 @@ pub const V_MIN: f32 = 0.8;
 
 
 fn tick_physics (
-    mut wheels: Query<&mut Wheel>,
+    mut wheels: Query<(&mut Wheel, &mut Transform), Without<Car>>,
     mut car: Single<&mut Car>,
+    mut car_transform: Single<&mut Transform, With<Car>>,
     time: Res<Time>,
     mut ray_cast: MeshRayCast,
     ground: Query<Entity, With<Ground>>,
@@ -71,23 +79,23 @@ fn tick_physics (
 
     let u_up: Vec3 = car.q_car * Vec3::new(0.0, 1.0, 0.0);
     let d_down: Vec3 = car.q_car * Vec3::new(0.0,-1.0, 0.0);
-    let p_com: Vec3 = car.p_car + car.q_car * Vec3::new(0.0, H_COM, 0.0);
+    let p_com: Vec3 = car_transform.translation + car.q_car * Vec3::new(0.0, H_COM, 0.0);
 
 
-    for mut wheel in &mut wheels {
+    for (mut wheel, mut wheel_transform) in &mut wheels {
         // suspension
         let p_anchor: Vec3;
         if wheel.front == 0 {
             if wheel.side == 0 {
-                p_anchor = car.p_car + car.q_car * p_rel_anchors[0]; 
+                p_anchor = car_transform.translation + car.q_car * p_rel_anchors[0]; 
             } else {
-                p_anchor = car.p_car + car.q_car * p_rel_anchors[1];
+                p_anchor = car_transform.translation + car.q_car * p_rel_anchors[1];
             }
         } else {
             if wheel.side == 0 {
-                p_anchor = car.p_car + car.q_car * p_rel_anchors[2]
+                p_anchor = car_transform.translation + car.q_car * p_rel_anchors[2]
             } else {
-                p_anchor = car.p_car + car.q_car * p_rel_anchors[3]
+                p_anchor = car_transform.translation + car.q_car * p_rel_anchors[3]
             }
         }
         
@@ -103,8 +111,15 @@ fn tick_physics (
             wheel.d_norm = hit_data.normal;
             wheel.p_contact = hit_data.point;
         } else {
+            println!("Didn't hit any entity");
             wheel.l_hit = L_REST;
+            wheel.d_norm = Vec3::new(0.0, 0.0, 0.0);
+            wheel.p_contact = Vec3::new(0.0, 0.0, 0.0);
         }
+
+        // update wheel pos and rot
+        wheel_transform.translation = p_anchor + d_down * wheel.l_hit;
+        wheel_transform.rotation = car.q_car * Quat::from_rotation_y(wheel.steer_angle) * Quat::from_rotation_z(90.0_f32.to_radians());
         
         wheel.x = (L_REST - wheel.l_hit).max(0.0);
 
@@ -163,7 +178,7 @@ fn tick_physics (
     let mut sum_f: Vec3 = Vec3::new(0.0, 0.0, 0.0);
     let mut sum_r: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 
-    for mut wheel in &mut wheels {
+    for (mut wheel, mut _transform) in &mut wheels {
         if wheel.front == 0 {
             if wheel.side == 0 {
                 wheel.f_z = front_left_f_z;
@@ -208,7 +223,7 @@ fn tick_physics (
     car.v_car += a_acc * time.delta_secs();
     // Car position
     let v_car = car.v_car;
-    car.p_car += v_car * time.delta_secs();
+    car_transform.translation += v_car * time.delta_secs();
 
 
     let r_car_mat = Mat3::from_quat(car.q_car);
@@ -217,6 +232,21 @@ fn tick_physics (
     car.w_car += a_ang * time.delta_secs();
     let w_quat = Quat::from_xyzw(car.w_car.x, car.w_car.y, car.w_car.z, 0.0);
     car.q_car = (car.q_car + (w_quat * car.q_car) * (0.5 * time.delta_secs())).normalize();
+    car_transform.rotation = car.q_car;
+
+    info!("{}", car_transform.translation)
 
 }
 
+fn log_data (
+    mut wheels: Query<&mut Wheel>,
+    mut car: Single<&mut Car>,
+    mut car_transform: Single<&mut Transform, With<Car>>,
+) {
+    info!("pos: {}", car_transform.translation);
+    
+    for wheel in wheels {
+        info!("l_hit: {}", wheel.l_hit);
+        info!("p_contact: {}", wheel.p_contact);
+    }
+}
