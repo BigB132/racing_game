@@ -1,4 +1,5 @@
-use bevy::{prelude::*};
+use bevy::{prelude::*, math::Quat};
+
 
 mod physics;
 
@@ -19,9 +20,11 @@ pub struct Player;
 
 #[derive(Component)]
 pub struct Car {
-    pub v_car: f32,
-    pub p_car: f32,
-    pub q_car: f32,
+    pub v_car: Vec3,
+    pub p_car: Vec3,
+    pub q_car: Quat,
+    pub w_car: Vec3,
+    pub r_car: Vec3,
 }
 
 #[derive(Component)]
@@ -42,7 +45,16 @@ pub struct Wheel {
     pub r_i: Vec3,
     pub w: f32,
     pub f: Vec3,
+    pub l_hit: f32,
+    pub p_contact: Vec3,
+    pub d_norm: Vec3,
+    pub t_drive: f32, // if player wants to acc set to 300
+    pub t_break: f32, // if player wants to break set 800
+    pub steer_angle: f32, // rear wheels have 0 and front wheels around 40
 }
+
+#[derive(Component)]
+pub struct Ground;
 
 fn setup_scene(
     mut commands: Commands,
@@ -51,6 +63,7 @@ fn setup_scene(
 ) {
     // Ground Plane
     commands.spawn((
+        Ground,
         Mesh3d(meshes.add(Plane3d::default().mesh().size(30.0, 30.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.25, 0.45, 0.25))),
         Transform::default(),
