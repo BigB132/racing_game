@@ -1,30 +1,47 @@
 use bevy::{prelude::*};
 
+mod physics;
+
+use physics::PhysicsPlugin;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(PhysicsPlugin)
         .add_systems(Startup, setup_scene)
-        .add_systems(Update, (
-            wheel_physics,
-        ))
         // .add_systems(Update, move_player)
         .run();
 }
 
+
 #[derive(Component)]
-struct Player {
-    speed: f32,
+pub struct Player;
+
+#[derive(Component)]
+pub struct Car {
+    pub v_car: f32,
+    pub p_car: f32,
+    pub q_car: f32,
 }
 
 #[derive(Component)]
-struct Car;
-
-#[derive(Component)]
-struct Wheel {
-    spring_constant: f64,
-    suspension_constant: f64,
-    l_rest: f64,
-    l_hit: f64,
+pub struct Wheel {
+    pub car: Car,
+    pub side: u8,
+    pub front: u8,
+    pub x: f32,
+    pub f_z: f32,
+    pub s: f32,
+    pub a_atan: f32,
+    pub f_x: f32,
+    pub f_y: f32,
+    pub f_roll: Vec3,
+    pub v_x: f32,
+    pub v_y: f32,
+    pub f_i: Vec3,
+    pub r_i: Vec3,
+    pub w: f32,
+    pub f: Vec3,
 }
 
 fn setup_scene(
@@ -41,7 +58,7 @@ fn setup_scene(
 
     // Player
     commands.spawn((
-        Player { speed: 8.0 },
+        Player,
         Camera3d::default(),
         Transform::from_xyz(0.0, 0.5, 5.0),
     ));
@@ -61,12 +78,4 @@ fn setup_scene(
         },
         Transform::from_xyz(8.0, 16.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-}
-
-fn wheel_physics(
-    wheels: Query<&Wheel>,
-) {
-    for wheel in wheels {
-        // Per wheel physics
-    }
 }

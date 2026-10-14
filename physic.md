@@ -44,7 +44,6 @@ F_down = -0.5 * p * c_l * A * length(v_car)² * u_up
 F_gravity = vec3(0, -M * g, 0)  
   
 # Calculating the physics per wheel  
-  
 ## Suspension  
 x = max(0, L_rest - L_hit)  
 v_anchor = v_car + cross(w_car, p_anchor - p_CoM)  
@@ -66,35 +65,34 @@ v_y = dot(v_contact, r_i)
   
 ## Tires  
 s = (w * R - v_x) / max(abs(v_x), v_min)  
-a = arctan2(v_y, max(abs(v_x), v_min))  
+a_atan = arctan2(v_y, max(abs(v_x), v_min))  
   
-D = m * F_z  
-F_pacejka(o, F_z) = D * sin(C * arctan(B * o - E * (B * o - arctan(B * o))))  
+d = m * F_z  
+F_pacejka(o, F_z) = d * sin(C * arctan(B * o - E * (B * o - arctan(B * o))))  
 F_x0 = F_pacejka(s, F_z)  
 F_y0 = -F_pacejka(a, F_z)  
   
 F_total = sqrt(F_x0² + F_y0²)  
-F_max = m * F_z  
   
-F_x = F_x0 * min(1, (F_max / max(F_total, 0.0001)))  
-F_y = F_y0 * min(1, (F_max / max(F_total, 0.0001)))   
+F_x = F_x0 * min(1, (d / max(F_total, 0.0001)))  
+F_y = F_y0 * min(1, (d / max(F_total, 0.0001)))  
     
 F_roll = -c_rr * F_z * clamp(v_x / v_min, -1, 1) * f_i  
   
 ## Acceleration  
 w_free = w + ((T_drive - F_x * R) / I_w) * delta_time  
 w = sgn(w_free) * max(0, abs(w_free) - (T_brake / I_w) * delta_time)  
-    
-## Adding everything together  
-F_wheel = F_z * d_norm + F_x * f_i + F_y * r_i + F_roll
   
-sum_F = F_gravity + F_drag + F_down + sum_of_i(F_wheel_i)    
+## Adding everything together  
+F_wheel = F_z * d_norm + F_x * f_i + F_y * r_i + F_roll  
+  
+sum_F = F_gravity + F_drag + F_down + sum_of_i(F_wheel_i)  
 a_acc = sum_F / M  
 v_car = v_car + a_acc * delta_time  
 p_car = p_car + v_car * delta_time  
-  
+    
 sum_r = sum_of_i(cross(p_contact_i - p_CoM, F_wheel_i))  
- 
+  
 a_ang = (R_car * I⁻¹ * R_carᵀ) * sum_r  
 w_car = w_car + a_ang * delta_time  
 q_car = normalize(q_car + 0.5 * quat(w_car, 0) * q_car * delta_time)  
