@@ -10,7 +10,7 @@ impl Plugin for PhysicsPlugin {
                 tick_physics,
                 // log_data.run_if(on_timer(Duration::from_secs(1)))
         ))
-            .insert_resource(Time::<Fixed>::from_hz(500.0));
+            .insert_resource(Time::<Fixed>::from_hz(250.0));
             
     }
 }
@@ -39,11 +39,33 @@ pub const K_ARB_REAR: f32 = 3000.0;
 pub const R: f32 = 0.37;
 pub const I_W: f32 = 1.2;
 pub const C_RR: f32 = 0.012;
-pub const m: f32 = 1.0;
+pub const M2: f32 = 1.0;
 pub const B: f32 = 10.0;
 pub const C: f32 = 1.45;
 pub const E: f32 = -0.6;
 pub const V_MIN: f32 = 0.8;
+
+pub const K_CRASH: f32 = 250000.0;
+pub const C_CRASH: f32 = 15000.0;
+pub const MU_WALL: f32 = 0.4;
+
+
+pub const HALF_EXTENTS: Vec3 = Vec3::new(0.95, 0.65, 2.25);
+pub const COLLIDER_POINTS: [Vec3; 10] = [
+    Vec3::new(-HALF_EXTENTS.x, -0.1, HALF_EXTENTS.z),
+    Vec3::new(HALF_EXTENTS.x, -0.1, HALF_EXTENTS.z),
+    Vec3::new(-HALF_EXTENTS.x, -0.1, -HALF_EXTENTS.z),
+    Vec3::new(HALF_EXTENTS.x, -0.1, -HALF_EXTENTS.z),
+
+    Vec3::new(0.0, -0.1, HALF_EXTENTS.z),
+    Vec3::new(0.0, -0.1, -HALF_EXTENTS.z),
+
+    Vec3::new(HALF_EXTENTS.x, 0.0, 0.0),
+    Vec3::new(-HALF_EXTENTS.x, 0.0, 0.0),
+
+    Vec3::new(0.6, HALF_EXTENTS.y, -0.5),
+    Vec3::new(-0.6, HALF_EXTENTS.y, 0.5)
+];
 
 pub const CAMERA_MODE: [Vec3; 3] = [
     Vec3::new(0.0, 4.0, -10.0),
@@ -109,7 +131,7 @@ fn tick_physics (
         let filter = |entity: Entity| ground.contains(entity);
         let hits = ray_cast.cast_ray(ray, &MeshRayCastSettings::default().with_filter(&filter));
         
-        if let Some((entity, hit_data)) = hits.first() {
+        if let Some((_entity, hit_data)) = hits.first() {
             // println!("Hit entity {:?} at point {}", entity, hit_data.point);
             wheel.l_hit = hit_data.distance.min(L_REST + R) - R;
             wheel.d_norm = hit_data.normal;
@@ -196,7 +218,7 @@ fn tick_physics (
             }
         }
 
-        let d: f32 = m * wheel.f_z;
+        let d: f32 = M2 * wheel.f_z;
         let f_x0 = d * (C * (B * wheel.s - E * (B * wheel.s - (B * wheel.s).atan())).atan()).sin();
         let f_y0 = -d * (C * (B * wheel.a_atan - E * (B * wheel.a_atan - (B * wheel.a_atan).atan())).atan()).sin();
 
@@ -210,7 +232,7 @@ fn tick_physics (
         let w_free: f32 = wheel.w + ((wheel.t_drive - wheel.f_x * R) / I_W) * time.delta_secs();
         wheel.w = w_free.signum() * (w_free.abs() - (wheel.t_break.abs() / I_W) * time.delta_secs()).max(0.0);
 
-        wheel.spin_angle = (wheel.spin_angle + wheel.w * time.delta_secs() % std::f32::consts::TAU);
+        wheel.spin_angle = wheel.spin_angle + wheel.w * time.delta_secs() % std::f32::consts::TAU;
 
         let base_rot: Quat = if wheel.side == 0 { Quat::from_rotation_x(90.0_f32.to_radians()) } else { Quat::from_rotation_x(-90.0_f32.to_radians()) };
 
@@ -220,6 +242,47 @@ fn tick_physics (
         
         sum_f += wheel.f;
         sum_r += (wheel.p_contact - p_com).cross(wheel.f);
+    }
+
+    // detects walls and stuff
+    for pt in COLLIDER_POINTS {
+        let world_offset = car.q_car * pt;
+        let max_dist = world_offset.length();
+
+        if let Ok(ray_dir) = Dir3::new(world_offset) {
+            let ray = Ray3d::new(p_com, ray_dir);
+            let filter = |entity: Entity| ground.contains(entity);
+            let hits = ray_cast.cast_ray(ray, &MeshRayCastSettings::default().with_filter(&filter));
+
+            if let Some((_entity, hit_data)) = hits.first() {
+                if hit_data.distance < max_dist {
+                    let penetration = max_dist - hit_data.distance;
+                    let n = hit_data.normal.normalize_or_zero();
+                    let p_hit = hit_data.point;
+
+                    let r_arm = p_hit - p_com;
+                    let v_point = car.v_car + car.w_car.cross(r_arm);
+
+                    let v_norm = v_point.dot(n);
+
+                    let damping = if v_norm < 0.0 { -C_CRASH * v_norm } else { 0.0 };
+                    let f_normal_mag = (K_CRASH * penetration + damping).max(0.0);
+                    let f_normal = n * f_normal_mag;
+
+                    let v_tangent = v_point - v_norm * n;
+                    let f_friction = if v_tangent.length() > 0.01 { -v_tangent.normalize() * (f_normal_mag * MU_WALL) } else { Vec3::ZERO };
+
+                    let f_crash = f_normal + f_friction;
+
+                    sum_f += f_crash;
+                    sum_r += r_arm.cross(f_crash);
+
+                    if penetration > 0.05 {
+                        car_transform.translation += n * (penetration - 0.05) * 0.5;
+                    }
+                }
+            }
+        }
     }
 
     let f_drag: Vec3 = -0.5 * P * C_W * A * car.v_car.length() * car.v_car;
@@ -248,6 +311,6 @@ fn tick_physics (
 
     let rotated_offset = car.q_car * CAMERA_MODE[car.cam_mode];
     cam_transform.translation = car_transform.translation + rotated_offset;
-    cam_transform.look_at(car_transform.translation, Vec3::new(0.0, 0.0, 0.0));
+    cam_transform.look_at(car_transform.translation, u_up);
 
 }

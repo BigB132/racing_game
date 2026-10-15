@@ -1,20 +1,28 @@
-use bevy::{prelude::*, scene::ResolvedSceneRoot};
+use bevy::prelude::*;
+use avian3d::prelude::*;
 
 
 mod physics;
 
 use physics::PhysicsPlugin;
 
-use crate::physics::R;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(PhysicsPlugin)
+        .add_plugins((
+            PhysicsPlugins::default(),
+            // PhysicsDebugPlugin::default(), // <-- Zeichnet alle Collider als bunte Linien!
+        ))
         .add_systems(Startup, setup_scene)
         .add_systems(Update, controls)
+        .add_observer(spawn_car)
         .run();
 }
+
+#[derive(Event)]
+pub struct MapReady;
 
 #[derive(Component)]
 pub struct SceneEntity;
@@ -65,119 +73,88 @@ pub struct Ground;
 
 fn setup_scene(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut asset_server: Res<AssetServer>,
+    asset_server: Res<AssetServer>,
 ) {
-    // Ground Plane
-    commands.spawn((
-        SceneEntity,
-        Ground,
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(30.0, 30.0))),
-        MeshMaterial3d(materials.add(Color::srgb(0.25, 0.45, 0.25))),
-        Transform::default(),
-    ));
-
-    // Car
-    commands.spawn((
-        SceneEntity,
-        Car::default(),
-        Player,
-        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("car/car.glb"))),
-        Transform::from_xyz(0.0, 5.0, 0.0),
-    ));
-
-    let wheels: [[f32; 6]; 4] = [
-        // side, front, x, y, z, rot
-        [0.0, 0.0, 0.8, 2.0, 0.9, 90.0],
-        [1.0, 0.0, -0.8, 2.0, 0.9, -90.0],
-        [0.0, 1.0, 0.8, 2.0, -0.9, 90.0],
-        [1.0, 1.0, -0., 2.0, -0.9, -90.0],
-    ];
-
-    for wheel in wheels {
+    // // Ground Plane
+    // commands.spawn((
+        //     SceneEntity,
+        //     Ground,
+        //     Mesh3d(meshes.add(Plane3d::default().mesh().size(30.0, 30.0))),
+        //     MeshMaterial3d(materials.add(Color::srgb(0.25, 0.45, 0.25))),
+        //     Transform::default(),
+        // ));
+        
+        // Camera
         commands.spawn((
-            SceneEntity,
-            Wheel {
-                side: wheel[0] as u8,
-                front: wheel[1] as u8,
+            Camera,
+            Camera3d::default(),
+            Transform::from_xyz(10.0, 5.0, 10.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)),
+        ));
+    
+        // Sun
+        commands.spawn((
+            DirectionalLight {
+                shadow_maps_enabled: true,
+                illuminance: 10_000.0,
                 ..default()
             },
-            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("car/wheel.glb"))),
+            Transform::from_xyz(8.0, 16.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
+        ));
+
+        commands.spawn((
+            Ground,
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("testmap.glb"))),
+            Transform::default(),
+            ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
+            RigidBody::Static,
+        )).observe(
+            |trigger: On<ColliderConstructorHierarchyReady>,
+             children_query: Query<&Children>,
+             mut commands: Commands| {
+                info!("Map ready");
+                for child in children_query.iter_descendants(trigger.entity) {
+                    commands.entity(child).insert(Ground);
+                }
+                commands.trigger(MapReady);
+            },
+        );
+
+}
+
+fn spawn_car (
+    _: On<MapReady>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>
+) {
+    // Car
+        commands.spawn((
+            SceneEntity,
+            Car::default(),
+            Player,
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("car/car.glb"))),
+            Transform::from_xyz(0.0, 3.0, 0.0),
+        ));
+        
+        let wheels: [[f32; 6]; 4] = [
+            // side, front, x, y, z, rot
+            [0.0, 0.0, 0.8, 2.0, 0.9, 90.0],
+            [1.0, 0.0, -0.8, 2.0, 0.9, -90.0],
+            [0.0, 1.0, 0.8, 2.0, -0.9, 90.0],
+            [1.0, 1.0, -0., 2.0, -0.9, -90.0],
+            ];
+            
+            for wheel in wheels {
+                commands.spawn((
+                    SceneEntity,
+                    Wheel {
+                        side: wheel[0] as u8,
+                        front: wheel[1] as u8,
+                        ..default()
+                    },
+                    WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("car/wheel.glb"))),
             Transform::from_xyz(wheel[2], wheel[3], wheel[4]).with_rotation(Quat::from_rotation_y(wheel[5].to_radians())),
         ));
     }
-
-    // // FL
-    // commands.spawn((
-    //     SceneEntity,
-    //     Wheel {
-    //         side: 0,
-    //         front: 0,
-    //         ..default()
-    //     },
-    //     Mesh3d(meshes.add(Cylinder::new(R, 0.4))),
-    //     MeshMaterial3d(materials.add(Color::srgb(0.1, 0.1, 0.1))),
-    //     Transform::from_xyz(1.0, 0.5, 1.0).with_rotation(Quat::from_rotation_z(90.0_f32.to_radians())),
-    // ));
-
-    // // FR
-    // commands.spawn((
-    //     SceneEntity,
-    //     Wheel {
-    //         side: 1,
-    //         front: 0,
-    //         ..default()
-    //     },
-    //     Mesh3d(meshes.add(Cylinder::new(R, 0.4))),
-    //     MeshMaterial3d(materials.add(Color::srgb(0.1, 0.1, 0.1))),
-    //     Transform::from_xyz(-1.0, 0.5, 1.0).with_rotation(Quat::from_rotation_z(-90.0_f32.to_radians())),
-    // ));
-
-    // // RL
-    // commands.spawn((
-    //     SceneEntity,
-    //     Wheel {
-    //         side: 0,
-    //         front: 1,
-    //         ..default()
-    //     },
-    //     Mesh3d(meshes.add(Cylinder::new(R, 0.4))),
-    //     MeshMaterial3d(materials.add(Color::srgb(0.1, 0.1, 0.1))),
-    //     Transform::from_xyz(1.0, 0.5, -1.0).with_rotation(Quat::from_rotation_z(90.0_f32.to_radians())),
-    // ));
-
-    // // RR
-    // commands.spawn((
-    //     SceneEntity,
-    //     Wheel {
-    //         side: 1,
-    //         front: 1,
-    //         ..default()
-    //     },
-    //     Mesh3d(meshes.add(Cylinder::new(R, 0.4))),
-    //     MeshMaterial3d(materials.add(Color::srgb(0.1, 0.1, 0.1))),
-    //     Transform::from_xyz(-1.0, 0.5, -1.0).with_rotation(Quat::from_rotation_z(-90.0_f32.to_radians())),
-    // ));
-
-    // Camera
-    commands.spawn((
-        Camera,
-        SceneEntity,
-        Camera3d::default(),
-        Transform::from_xyz(10.0, 5.0, 10.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)),
-    ));
-
-    // Sun
-    commands.spawn((
-        SceneEntity,
-        DirectionalLight {
-            shadow_maps_enabled: true,
-            illuminance: 10_000.0,
-            ..default()
-        },
-        Transform::from_xyz(8.0, 16.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
 }
 
 fn controls(
@@ -186,9 +163,6 @@ fn controls(
     mut wheels: Query<&mut Wheel>,
     mut car: Single<&mut Car>,
     scene_entities: Query<Entity, With<SceneEntity>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    asset_server: Res<AssetServer>,
 ) {
     if keys.pressed(KeyCode::KeyW) {
         for mut wheel in &mut wheels {
@@ -229,7 +203,7 @@ fn controls(
         for entity in &scene_entities {
             commands.entity(entity).despawn();
         }
-        setup_scene(commands, meshes, materials, asset_server);
+        commands.trigger(MapReady);
     }
     if keys.just_pressed(KeyCode::KeyC) {
         car.cam_mode = (car.cam_mode + 1) % 3
