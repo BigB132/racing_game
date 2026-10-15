@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use bevy::{math::Quat, prelude::*, time::common_conditions::on_timer};
+use bevy::{math::Quat, prelude::*};
 use crate::{Car, Wheel, Ground};
 
 pub struct PhysicsPlugin;
@@ -10,7 +8,7 @@ impl Plugin for PhysicsPlugin {
         app
             .add_systems(FixedUpdate, (
                 tick_physics,
-                log_data.run_if(on_timer(Duration::from_secs(1)))
+                // log_data.run_if(on_timer(Duration::from_secs(1)))
         ))
             .insert_resource(Time::<Fixed>::from_hz(500.0));
             
@@ -19,16 +17,16 @@ impl Plugin for PhysicsPlugin {
 
 
 // constants 
-pub const M: f32 = 1450.0;
+pub const M: f32 = 1730.0;
 pub const G: f32 = 9.81;
-pub const H_COM: f32 = 0.48;
+pub const H_COM: f32 = 0.3;
 pub const I_XX: f32 = 2200.0;
 pub const I_YY: f32 = 2400.0;
 pub const I_ZZ: f32 = 550.0;
 pub const P: f32 = 1.225;
-pub const C_W: f32 = 0.31;
-pub const A: f32 = 2.2;
-pub const C_L: f32 = 0.05;
+pub const C_W: f32 = 0.30;
+pub const A: f32 = 2.07;
+pub const C_L: f32 = 0.3;
 
 pub const K_FRONT: f32 = 35000.0;
 pub const K_REAR: f32 = 30000.0;
@@ -38,8 +36,7 @@ pub const L_REST: f32 = 0.45;
 pub const K_ARB_FRONT: f32 = 5000.0;
 pub const K_ARB_REAR: f32 = 3000.0;
 
-pub const R: f32 = 0.32;
-// pub const M_WHEEL: f32 = 20.0;
+pub const R: f32 = 0.37;
 pub const I_W: f32 = 1.2;
 pub const C_RR: f32 = 0.012;
 pub const m: f32 = 1.0;
@@ -47,6 +44,12 @@ pub const B: f32 = 10.0;
 pub const C: f32 = 1.45;
 pub const E: f32 = -0.6;
 pub const V_MIN: f32 = 0.8;
+
+pub const CAMERA_MODE: [Vec3; 3] = [
+    Vec3::new(0.0, 4.0, -10.0),
+    Vec3::new(4.0, 2.0, 0.0),
+    Vec3::new(4.0, 0.1, 0.0),
+];
 
 
 fn tick_physics (
@@ -56,6 +59,7 @@ fn tick_physics (
     time: Res<Time>,
     mut ray_cast: MeshRayCast,
     ground: Query<Entity, With<Ground>>,
+    mut cam_transform: Single<&mut Transform, (With<Camera>, Without<Car>, Without<Wheel>)>,
 ) {
 
     let mut front_left_x: f32 = 0.0;
@@ -70,11 +74,11 @@ fn tick_physics (
 
 
     let p_rel_anchors: [Vec3; 4] = [
-        Vec3::new(-0.8, 0.0,  1.35),
-        Vec3::new( 0.8, 0.0,  1.35),
-        Vec3::new(-0.8, 0.0, -1.35),
-        Vec3::new( 0.8, 0.0, -1.35),
-    ]; // from top of suspension / where the ray cast starts / TODO: set actual offsets
+        Vec3::new(-0.75, 0.65,  1.25),
+        Vec3::new( 0.75, 0.65,  1.25),
+        Vec3::new(-0.78, 0.67, -1.25),
+        Vec3::new( 0.78, 0.67, -1.25),
+    ];
     
 
     let u_up: Vec3 = car.q_car * Vec3::new(0.0, 1.0, 0.0);
@@ -106,12 +110,12 @@ fn tick_physics (
         let hits = ray_cast.cast_ray(ray, &MeshRayCastSettings::default().with_filter(&filter));
         
         if let Some((entity, hit_data)) = hits.first() {
-            println!("Hit entity {:?} at point {}", entity, hit_data.point);
+            // println!("Hit entity {:?} at point {}", entity, hit_data.point);
             wheel.l_hit = hit_data.distance.min(L_REST + R) - R;
             wheel.d_norm = hit_data.normal;
             wheel.p_contact = hit_data.point;
         } else {
-            println!("Didn't hit any entity");
+            // println!("Didn't hit any entity");
             wheel.l_hit = L_REST;
             wheel.d_norm = Vec3::new(0.0, 0.0, 0.0);
             wheel.p_contact = Vec3::new(0.0, 0.0, 0.0);
@@ -119,7 +123,6 @@ fn tick_physics (
 
         // update wheel pos and rot
         wheel_transform.translation = p_anchor + d_down * wheel.l_hit;
-        wheel_transform.rotation = car.q_car * Quat::from_rotation_y(wheel.steer_angle) * Quat::from_rotation_z(90.0_f32.to_radians());
         
         wheel.x = (L_REST - wheel.l_hit).max(0.0);
 
@@ -178,7 +181,7 @@ fn tick_physics (
     let mut sum_f: Vec3 = Vec3::new(0.0, 0.0, 0.0);
     let mut sum_r: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 
-    for (mut wheel, mut _transform) in &mut wheels {
+    for (mut wheel, mut wheel_transform) in &mut wheels {
         if wheel.front == 0 {
             if wheel.side == 0 {
                 wheel.f_z = front_left_f_z;
@@ -206,8 +209,15 @@ fn tick_physics (
 
         let w_free: f32 = wheel.w + ((wheel.t_drive - wheel.f_x * R) / I_W) * time.delta_secs();
         wheel.w = w_free.signum() * (w_free.abs() - (wheel.t_break.abs() / I_W) * time.delta_secs()).max(0.0);
+
+        wheel.spin_angle = (wheel.spin_angle + wheel.w * time.delta_secs() % std::f32::consts::TAU);
+
+        let base_rot: Quat = if wheel.side == 0 { Quat::from_rotation_x(90.0_f32.to_radians()) } else { Quat::from_rotation_x(-90.0_f32.to_radians()) };
+
+        wheel_transform.rotation = car.q_car * Quat::from_rotation_y(wheel.steer_angle) * Quat::from_rotation_x(wheel.spin_angle) * base_rot * Quat::from_rotation_z(-90.0_f32.to_radians());
         
         wheel.f = wheel.f_z * wheel.d_norm + wheel.f_x * wheel.f_i + wheel.f_y * wheel.r_i + wheel.f_roll;
+        
         sum_f += wheel.f;
         sum_r += (wheel.p_contact - p_com).cross(wheel.f);
     }
@@ -234,19 +244,10 @@ fn tick_physics (
     car.q_car = (car.q_car + (w_quat * car.q_car) * (0.5 * time.delta_secs())).normalize();
     car_transform.rotation = car.q_car;
 
-    info!("{}", car_transform.translation)
+    cam_transform.translation = car_transform.translation + CAMERA_MODE[car.cam_mode];
 
-}
+    let rotated_offset = car.q_car * CAMERA_MODE[car.cam_mode];
+    cam_transform.translation = car_transform.translation + rotated_offset;
+    cam_transform.look_at(car_transform.translation, Vec3::new(0.0, 0.0, 0.0));
 
-fn log_data (
-    wheels: Query<&mut Wheel>,
-
-    mut car_transform: Single<&mut Transform, With<Car>>,
-) {
-    info!("pos: {}", car_transform.translation);
-    
-    for wheel in wheels {
-        info!("l_hit: {}", wheel.l_hit);
-        info!("p_contact: {}", wheel.p_contact);
-    }
 }
