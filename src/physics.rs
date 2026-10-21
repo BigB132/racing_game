@@ -1,5 +1,7 @@
-use bevy::{math::Quat, prelude::*};
-use crate::{Car, Wheel, Ground};
+use std::{f32::consts::TAU, time::Duration};
+
+use bevy::{math::Quat, prelude::*, time::common_conditions::on_timer};
+use crate::{Car, Drivetrain, Ground, Wheel};
 
 pub struct PhysicsPlugin;
 
@@ -7,9 +9,10 @@ impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_systems(FixedUpdate, (
+                update_drivetrain,
                 tick_physics,
-                // log_data.run_if(on_timer(Duration::from_secs(1)))
-        ))
+                log_data.run_if(on_timer(Duration::from_secs(1)))
+            ).chain())
             .insert_resource(Time::<Fixed>::from_hz(250.0));
             
     }
@@ -37,7 +40,7 @@ pub const K_ARB_FRONT: f32 = 5000.0;
 pub const K_ARB_REAR: f32 = 3000.0;
 
 pub const R: f32 = 0.37;
-pub const I_W: f32 = 1.2;
+pub const I_W: f32 = 20.0;
 pub const C_RR: f32 = 0.012;
 pub const M2: f32 = 1.0;
 pub const B: f32 = 10.0;
@@ -48,7 +51,6 @@ pub const V_MIN: f32 = 0.8;
 pub const K_CRASH: f32 = 250000.0;
 pub const C_CRASH: f32 = 15000.0;
 pub const MU_WALL: f32 = 0.4;
-
 
 pub const HALF_EXTENTS: Vec3 = Vec3::new(0.95, 0.65, 2.25);
 pub const COLLIDER_POINTS: [Vec3; 10] = [
@@ -132,12 +134,12 @@ fn tick_physics (
         let hits = ray_cast.cast_ray(ray, &MeshRayCastSettings::default().with_filter(&filter));
         
         if let Some((_entity, hit_data)) = hits.first() {
-            // println!("Hit entity {:?} at point {}", entity, hit_data.point);
+            // println!("hit entity {:?} at point {}", entity, hit_data.point);
             wheel.l_hit = hit_data.distance.min(L_REST + R) - R;
             wheel.d_norm = hit_data.normal;
             wheel.p_contact = hit_data.point;
         } else {
-            // println!("Didn't hit any entity");
+            // println!("didn't hit any entity");
             wheel.l_hit = L_REST;
             wheel.d_norm = Vec3::new(0.0, 0.0, 0.0);
             wheel.p_contact = Vec3::new(0.0, 0.0, 0.0);
@@ -313,4 +315,127 @@ fn tick_physics (
     cam_transform.translation = car_transform.translation + rotated_offset;
     cam_transform.look_at(car_transform.translation, u_up);
 
+}
+
+pub fn update_drivetrain(
+    time: Res<Time>,
+    mut drivetrain: Single<&mut Drivetrain>,
+    mut wheels: Query<&mut Wheel>,
+) {
+
+    if drivetrain.shift_timer > 0.0 {
+        drivetrain.shift_timer = (drivetrain.shift_timer - time.delta_secs()).max(0.0);
+    }
+    if drivetrain.shift_cooldown > 0.0 {
+        drivetrain.shift_cooldown = drivetrain.shift_cooldown - time.delta_secs().max(0.0);
+    }
+
+    let mut rear_w_sum = 0.0;
+    let mut front_w_sum = 0.0;
+
+    for wheel in &wheels {
+        if wheel.front != 0 {
+            rear_w_sum += wheel.w;
+        } else {
+            front_w_sum += wheel.w;
+        }
+    }
+
+    let avg_rear_w = rear_w_sum / 2.0;
+    let avg_front_w = front_w_sum / 2.0;
+
+    let is_wheel_spinning = avg_rear_w.abs() > (avg_front_w.abs() * 1.5 + 5.0);
+
+    let gear_idx = (drivetrain.current_gear + 1) as usize;
+    let gear_ratio = drivetrain.gear_ratios[gear_idx];
+    let total_ratio = gear_ratio * drivetrain.final_drive;
+
+    let raw_rpm = (avg_rear_w * total_ratio).abs() * (60.0 / std::f32::consts::TAU);
+
+    let is_neutral = drivetrain.current_gear == 0 || drivetrain.shift_timer > 0.0;
+
+    if is_neutral {
+        let target_idle = drivetrain.idle_rpm + drivetrain.throttle * (drivetrain.max_rpm - drivetrain.idle_rpm);
+        drivetrain.rpm += (target_idle - drivetrain.rpm) * 8.0 * time.delta_secs();
+        drivetrain.clutch = 0.0;
+    } else {
+        if raw_rpm < drivetrain.idle_rpm {
+            drivetrain.clutch = drivetrain.throttle.clamp(0.0, 1.0);
+            let slip_rpm = drivetrain.idle_rpm + drivetrain.throttle * 2000.0;
+            drivetrain.rpm = drivetrain.rpm.lerp(slip_rpm, 5.0 * time.delta_secs());
+        } else {
+            drivetrain.clutch = 1.0;
+            drivetrain.rpm = raw_rpm;
+        } 
+    }
+
+    if drivetrain.rpm >= drivetrain.max_rpm {
+        drivetrain.rev_limiter = true;
+        drivetrain.rpm = drivetrain.max_rpm;
+    } else {
+        drivetrain.rev_limiter = false;
+    }
+
+    if drivetrain.shift_timer <= 0.0 && drivetrain.current_gear > 0 {
+        let upshift_rpm = drivetrain.max_rpm * 0.93;
+        let downshift_rpm = 2200.0;
+
+        if drivetrain.rpm >= upshift_rpm && drivetrain.current_gear < 8 {
+            let next_gear_ratio = drivetrain.gear_ratios[(drivetrain.current_gear + 2) as usize] * drivetrain.final_drive;
+            let projected_rpm = (avg_rear_w * next_gear_ratio).abs() * (60.0 / TAU);
+
+            if projected_rpm > (downshift_rpm + 400.0) && !is_wheel_spinning {
+                drivetrain.current_gear += 1;
+                drivetrain.shift_timer = drivetrain.shift_duration;
+                info!("gear up")
+            }
+        } else if drivetrain.rpm < downshift_rpm && drivetrain.current_gear > 1 {
+            let next_lower_gear_ratio = drivetrain.gear_ratios[(drivetrain.current_gear) as usize] * drivetrain.final_drive;
+            let projected_rpm = (avg_rear_w * next_lower_gear_ratio).abs() * (60.0 / TAU);
+
+            if projected_rpm < (drivetrain.max_rpm - 500.0) {
+                drivetrain.current_gear -= 1;
+                drivetrain.shift_timer = drivetrain.shift_duration;
+                info!("gear down")
+            }
+        }
+    }
+
+    let t_engine_max = {
+        let rpm_clamped: f32 = drivetrain.rpm.clamp(800.0, 7200.0);
+        if rpm_clamped < 2000.0 {
+            280.0 + (rpm_clamped - 800.0) * (200.0 / 1200.0)
+        } else if rpm_clamped <= 5500.0 {
+            480.0 + (rpm_clamped - 2000.0) * (40.0 / 3500.0)
+        } else {
+            520.0 - (rpm_clamped - 5500.0) * (140.0 / 1700.0)
+        }
+    };
+
+    let t_engine = if drivetrain.rev_limiter || is_neutral {
+        0.0
+    } else if drivetrain.throttle > 0.05 {
+        t_engine_max * drivetrain.throttle
+    } else {
+        -80.0 
+    };
+
+    let t_drive_total = t_engine * total_ratio * drivetrain.drivetrain_effeciency * drivetrain.clutch;
+    let t_per_drive_wheel = t_drive_total / 2.0;
+
+    for mut wheel in &mut wheels {
+        if wheel.front != 0 {
+            wheel.t_drive = t_per_drive_wheel;
+        } else {
+            wheel.t_drive = 0.0;
+        }
+    }
+
+
+}
+
+pub fn log_data(
+    drivetrain: Single<&Drivetrain>,
+) {
+    info!(drivetrain.current_gear);
 }

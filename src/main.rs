@@ -13,7 +13,6 @@ fn main() {
         .add_plugins(PhysicsPlugin)
         .add_plugins((
             PhysicsPlugins::default(),
-            // PhysicsDebugPlugin::default(), // <-- Zeichnet alle Collider als bunte Linien!
         ))
         .add_systems(Startup, setup_scene)
         .add_systems(Update, controls)
@@ -62,10 +61,49 @@ pub struct Wheel {
     pub l_hit: f32,
     pub p_contact: Vec3,
     pub d_norm: Vec3,
-    pub t_drive: f32, // if player wants to acc set to 300
-    pub t_break: f32, // if player wants to break set 800
+    pub t_drive: f32,
+    pub t_break: f32,
     pub steer_angle: f32, // rear wheels have 0 and front wheels around 40
     pub spin_angle: f32,
+}
+
+#[derive(Component)]
+pub struct Drivetrain {
+    pub throttle: f32,
+    pub current_gear: i32,
+    pub gear_ratios: [f32; 10],
+    pub final_drive: f32,
+    pub drivetrain_effeciency: f32,
+
+    pub rpm: f32,
+    pub idle_rpm: f32,
+    pub max_rpm: f32,
+    pub rev_limiter: bool,
+
+    pub shift_timer: f32,
+    pub shift_duration: f32,
+    pub shift_cooldown: f32,
+    pub clutch: f32,
+}
+
+impl Default for Drivetrain {
+    fn default() -> Self {
+        Self {
+            throttle: 0.0,
+            current_gear: 1,
+            gear_ratios: [-3.99, 0.0, 4.89, 3.17, 2.15, 1.56, 1.18, 0.94, 0.76, 0.61],
+            final_drive: 3.7,
+            drivetrain_effeciency: 0.9,
+            rpm: 900.0,
+            idle_rpm: 900.0,
+            max_rpm: 7200.0,
+            rev_limiter: false,
+            shift_timer: 0.0,
+            shift_duration: 0.12,
+            shift_cooldown: 0.6,
+            clutch: 1.0
+        }
+    }
 }
 
 #[derive(Component)]
@@ -75,14 +113,6 @@ fn setup_scene(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
-    // // Ground Plane
-    // commands.spawn((
-        //     SceneEntity,
-        //     Ground,
-        //     Mesh3d(meshes.add(Plane3d::default().mesh().size(30.0, 30.0))),
-        //     MeshMaterial3d(materials.add(Color::srgb(0.25, 0.45, 0.25))),
-        //     Transform::default(),
-        // ));
         
         // Camera
         commands.spawn((
@@ -130,6 +160,7 @@ fn spawn_car (
         commands.spawn((
             SceneEntity,
             Car::default(),
+            Drivetrain::default(),
             Player,
             WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("car/car.glb"))),
             Transform::from_xyz(0.0, 3.0, 0.0),
@@ -140,7 +171,7 @@ fn spawn_car (
             [0.0, 0.0, 0.8, 2.0, 0.9, 90.0],
             [1.0, 0.0, -0.8, 2.0, 0.9, -90.0],
             [0.0, 1.0, 0.8, 2.0, -0.9, 90.0],
-            [1.0, 1.0, -0., 2.0, -0.9, -90.0],
+            [1.0, 1.0, -0.8, 2.0, -0.9, -90.0],
             ];
             
             for wheel in wheels {
@@ -162,26 +193,20 @@ fn controls(
     keys: Res<ButtonInput<KeyCode>>,
     mut wheels: Query<&mut Wheel>,
     mut car: Single<&mut Car>,
+    mut drivetrain: Single<&mut Drivetrain>,
     scene_entities: Query<Entity, With<SceneEntity>>,
 ) {
     if keys.pressed(KeyCode::KeyW) {
-        for mut wheel in &mut wheels {
-            wheel.t_drive = 800.0;
-        }
+        drivetrain.throttle = 1.0;
     } else {
-        for mut wheel in &mut wheels {
-            wheel.t_drive = 0.0;
-        }
+        drivetrain.throttle = 0.0;
     }
-    if keys.pressed(KeyCode::KeyS) {
-        for mut wheel in &mut wheels {
-            wheel.t_break = 800.0;
-        }
-    } else {
-        for mut wheel in &mut wheels {
-            wheel.t_break = 0.0;
-        }
+    
+    let brake_torque = if keys.pressed(KeyCode::KeyS) { 800.0 } else { 0.0 };
+    for mut wheel in &mut wheels {
+        wheel.t_break = brake_torque;
     }
+
     if keys.pressed(KeyCode::KeyA) {
         for mut wheel in &mut wheels {
             if wheel.front == 0 {
