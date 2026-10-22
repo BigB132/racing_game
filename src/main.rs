@@ -133,7 +133,7 @@ fn setup_scene(
 
         commands.spawn((
             Ground,
-            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("testmap.glb"))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("race_track.glb"))),
             Transform::default(),
             ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
             RigidBody::Static,
@@ -195,6 +195,7 @@ fn controls(
     mut car: Single<&mut Car>,
     mut drivetrain: Single<&mut Drivetrain>,
     scene_entities: Query<Entity, With<SceneEntity>>,
+    time: Res<Time>,
 ) {
     if keys.pressed(KeyCode::KeyW) {
         drivetrain.throttle = 1.0;
@@ -202,28 +203,53 @@ fn controls(
         drivetrain.throttle = 0.0;
     }
     
-    let brake_torque = if keys.pressed(KeyCode::KeyS) { 800.0 } else { 0.0 };
+    // let brake_torque = if keys.pressed(KeyCode::KeyS) { 800.0 } else { 0.0 };
+    // for mut wheel in &mut wheels {
+    //     wheel.t_break = brake_torque;
+    // }
+
+    let braking = keys.pressed(KeyCode::KeyS);
     for mut wheel in &mut wheels {
-        wheel.t_break = brake_torque;
+        wheel.t_break = if braking {
+            if wheel.front == 0 { 2600.0 } else { 1800.0 }
+        } else {
+            0.0
+        };
     }
 
-    if keys.pressed(KeyCode::KeyA) {
-        for mut wheel in &mut wheels {
-            if wheel.front == 0 {
-                wheel.steer_angle = 40.0_f32.to_radians();
-            }
-        }
-    } else if keys.pressed(KeyCode::KeyD) {
-        for mut wheel in &mut wheels {
-            if wheel.front == 0 {
-                wheel.steer_angle = -40.0_f32.to_radians();
-            }
-        }
+    let speed = car.v_car.length();
+    let v_local = car.q_car.inverse() * car.v_car;
+    let slip_angle = if speed > 2.0 {
+        v_local.x.atan2(v_local.z.max(1.0)).clamp(-0.45, 0.45)
     } else {
-        for mut wheel in &mut wheels {
-            wheel.steer_angle = 0.0_f32.to_radians();
-        }
+        0.0
+    };
+
+    let max_steer = (35.0_f32.to_radians() / (1.0 + speed * 0.045)).max(8.0_f32.to_radians());
+
+    let raw_input = if keys.pressed(KeyCode::KeyA) {
+        1.0
+    } else if keys.pressed(KeyCode::KeyD) {
+        -1.0
+    } else {
+        0.0
+    };
+
+    let target_front_steer = (raw_input * max_steer + slip_angle * 0.55).clamp(-35.0_f32.to_radians(), 35.0_f32.to_radians());
+
+    let ras_factor = if speed < 15.0 {
+        -0.07
+    } else {
+        ((speed - 15.0) * 0.01).min(0.05)
+    };
+
+    let target_rear_steer = (target_front_steer * ras_factor).clamp(-2.8_f32.to_radians(), 1.8_f32.to_radians());
+
+    for mut wheel in &mut wheels {
+        let target = if wheel.front == 0 { target_front_steer } else { target_rear_steer };
+        wheel.steer_angle = wheel.steer_angle.lerp(target, 14.0 * time.delta_secs());
     }
+    
     if keys.just_pressed(KeyCode::KeyR) {
         for entity in &scene_entities {
             commands.entity(entity).despawn();

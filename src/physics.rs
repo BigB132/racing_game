@@ -1,4 +1,5 @@
-use std::{f32::consts::TAU, time::Duration};
+use core::ffi;
+use std::time::Duration;
 
 use bevy::{math::Quat, prelude::*, time::common_conditions::on_timer};
 use crate::{Car, Drivetrain, Ground, Wheel};
@@ -20,27 +21,27 @@ impl Plugin for PhysicsPlugin {
 
 
 // constants 
-pub const M: f32 = 1730.0;
+pub const M: f32 = 1715.0;
 pub const G: f32 = 9.81;
-pub const H_COM: f32 = 0.3;
-pub const I_XX: f32 = 2200.0;
-pub const I_YY: f32 = 2400.0;
-pub const I_ZZ: f32 = 550.0;
+pub const H_COM: f32 = 0.22;
+pub const I_XX: f32 = 2400.0;
+pub const I_YY: f32 = 2750.0;
+pub const I_ZZ: f32 = 620.0;
 pub const P: f32 = 1.225;
-pub const C_W: f32 = 0.30;
+pub const C_W: f32 = 0.31;
 pub const A: f32 = 2.07;
-pub const C_L: f32 = 0.3;
+pub const C_L: f32 = 0.42;
 
-pub const K_FRONT: f32 = 35000.0;
-pub const K_REAR: f32 = 30000.0;
-pub const C_BUMP: f32 = 2800.0;
-pub const C_REBOUND: f32 = 4200.0;
-pub const L_REST: f32 = 0.45;
-pub const K_ARB_FRONT: f32 = 5000.0;
-pub const K_ARB_REAR: f32 = 3000.0;
+pub const K_FRONT: f32 = 65000.0;
+pub const K_REAR: f32 = 90000.0;
+pub const C_BUMP: f32 = 4800.0;
+pub const C_REBOUND: f32 = 6800.0;
+pub const L_REST: f32 = 0.3;
+pub const K_ARB_FRONT: f32 = 18000.0;
+pub const K_ARB_REAR: f32 = 22000.0;
 
-pub const R: f32 = 0.37;
-pub const I_W: f32 = 20.0;
+pub const R: f32 = 0.36;
+pub const I_W: f32 = 1.6;
 pub const C_RR: f32 = 0.012;
 pub const M2: f32 = 1.0;
 pub const B: f32 = 10.0;
@@ -231,6 +232,11 @@ fn tick_physics (
 
         wheel.f_roll = -C_RR * wheel.f_z * (wheel.v_x / V_MIN).clamp(-1.0, 1.0) * wheel.f_i;
 
+        let max_slip_allowed = 0.18;
+        if wheel.s > max_slip_allowed {
+            wheel.t_drive *= (max_slip_allowed / wheel.s).clamp(0.2, 1.0);
+        }
+
         let w_free: f32 = wheel.w + ((wheel.t_drive - wheel.f_x * R) / I_W) * time.delta_secs();
         wheel.w = w_free.signum() * (w_free.abs() - (wheel.t_break.abs() / I_W) * time.delta_secs()).max(0.0);
 
@@ -344,8 +350,6 @@ pub fn update_drivetrain(
     let avg_rear_w = rear_w_sum / 2.0;
     let avg_front_w = front_w_sum / 2.0;
 
-    let is_wheel_spinning = avg_rear_w.abs() > (avg_front_w.abs() * 1.5 + 5.0);
-
     let gear_idx = (drivetrain.current_gear + 1) as usize;
     let gear_ratio = drivetrain.gear_ratios[gear_idx];
     let total_ratio = gear_ratio * drivetrain.final_drive;
@@ -381,23 +385,13 @@ pub fn update_drivetrain(
         let downshift_rpm = 2200.0;
 
         if drivetrain.rpm >= upshift_rpm && drivetrain.current_gear < 8 {
-            let next_gear_ratio = drivetrain.gear_ratios[(drivetrain.current_gear + 2) as usize] * drivetrain.final_drive;
-            let projected_rpm = (avg_rear_w * next_gear_ratio).abs() * (60.0 / TAU);
-
-            if projected_rpm > (downshift_rpm + 400.0) && !is_wheel_spinning {
-                drivetrain.current_gear += 1;
-                drivetrain.shift_timer = drivetrain.shift_duration;
-                info!("gear up")
-            }
+            drivetrain.current_gear += 1;
+            drivetrain.shift_timer = drivetrain.shift_duration;
+            info!("gear up")
         } else if drivetrain.rpm < downshift_rpm && drivetrain.current_gear > 1 {
-            let next_lower_gear_ratio = drivetrain.gear_ratios[(drivetrain.current_gear) as usize] * drivetrain.final_drive;
-            let projected_rpm = (avg_rear_w * next_lower_gear_ratio).abs() * (60.0 / TAU);
-
-            if projected_rpm < (drivetrain.max_rpm - 500.0) {
-                drivetrain.current_gear -= 1;
-                drivetrain.shift_timer = drivetrain.shift_duration;
-                info!("gear down")
-            }
+            drivetrain.current_gear -= 1;
+            drivetrain.shift_timer = drivetrain.shift_duration;
+            info!("gear down")
         }
     }
 
