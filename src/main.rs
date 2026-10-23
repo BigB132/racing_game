@@ -32,6 +32,12 @@ pub struct Player;
 #[derive(Component)]
 pub struct Camera;
 
+#[derive(Component)]
+pub struct RPM;
+
+#[derive(Component)]
+pub struct Gear;
+
 #[derive(Component, Default)]
 pub struct Car {
     pub v_car: Vec3,
@@ -114,40 +120,71 @@ fn setup_scene(
     asset_server: Res<AssetServer>,
 ) {
         
-        // Camera
-        commands.spawn((
-            Camera,
-            Camera3d::default(),
-            Transform::from_xyz(10.0, 5.0, 10.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)),
-        ));
-    
-        // Sun
-        commands.spawn((
-            DirectionalLight {
-                shadow_maps_enabled: true,
-                illuminance: 10_000.0,
-                ..default()
-            },
-            Transform::from_xyz(8.0, 16.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ));
+    // Camera
+    commands.spawn((
+        Camera,
+        Camera3d::default(),
+        Transform::from_xyz(10.0, 5.0, 10.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)),
+    ));
 
-        commands.spawn((
-            Ground,
-            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("race_track.glb"))),
-            Transform::default(),
-            ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
-            RigidBody::Static,
-        )).observe(
-            |trigger: On<ColliderConstructorHierarchyReady>,
-             children_query: Query<&Children>,
-             mut commands: Commands| {
-                info!("Map ready");
-                for child in children_query.iter_descendants(trigger.entity) {
-                    commands.entity(child).insert(Ground);
-                }
-                commands.trigger(MapReady);
-            },
-        );
+    // Sun
+    commands.spawn((
+        DirectionalLight {
+            shadow_maps_enabled: true,
+            illuminance: 10_000.0,
+            ..default()
+        },
+        Transform::from_xyz(8.0, 16.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+
+    commands.spawn((
+        Ground,
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("race_track.glb"))),
+        Transform::default(),
+        ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
+        RigidBody::Static,
+    )).observe(
+        |trigger: On<ColliderConstructorHierarchyReady>,
+            children_query: Query<&Children>,
+            mut commands: Commands| {
+            info!("Map ready");
+            for child in children_query.iter_descendants(trigger.entity) {
+                commands.entity(child).insert(Ground);
+            }
+            commands.trigger(MapReady);
+        },
+    );
+
+    // Text overlay
+    commands.spawn((
+        Node {
+            width: percent(100.0),
+            margin: px(10.0).top(),
+            ..default()
+        },
+        Text::new("RPM: 0"),
+        TextLayout::justify(Justify::Center),
+        TextFont {
+            font_size: 33.0.into(),
+            ..default()
+        },
+        RPM
+    ));
+
+    commands.spawn((
+        Node {
+            width: percent(100.0),
+            margin: px(40.0).top(),
+            ..default()
+        },
+        Text::new("Gear: 1"),
+        TextLayout::justify(Justify::Center),
+        TextFont {
+            font_size: 33.0.into(),
+            ..default()
+        },
+        Gear
+    ));
 
 }
 

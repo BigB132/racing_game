@@ -1,7 +1,7 @@
 use std::{f32::consts::TAU, time::Duration};
 
 use bevy::{math::Quat, prelude::*, time::common_conditions::on_timer};
-use crate::{Car, Drivetrain, Ground, Wheel};
+use crate::{Car, Drivetrain, Gear, Ground, RPM, Wheel};
 
 pub struct PhysicsPlugin;
 
@@ -207,7 +207,7 @@ fn tick_physics (
     let mut sum_f: Vec3 = Vec3::new(0.0, 0.0, 0.0);
     let mut sum_r: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 
-    for (mut wheel, mut wheel_transform) in &mut wheels {
+    for (mut wheel, _wheel_transform) in &mut wheels {
         if wheel.front == 0 {
             if wheel.side == 0 {
                 wheel.f_z = front_left_f_z;
@@ -367,6 +367,7 @@ pub fn update_drivetrain(
     time: Res<Time>,
     mut drivetrain: Single<&mut Drivetrain>,
     mut wheels: Query<&mut Wheel>,
+    mut texts: Query<(&mut Text, Option<&RPM>, Option<&Gear>)>,
 ) {
 
     if drivetrain.shift_timer > 0.0 {
@@ -433,6 +434,14 @@ pub fn update_drivetrain(
             drivetrain.current_gear -= 1;
             drivetrain.shift_timer = drivetrain.shift_duration;
             info!("gear down")
+        }
+    }
+
+    for (mut text, is_rpm, is_gear) in &mut texts {
+        if is_rpm.is_some() {
+            text.0 = format!("RPM: {:.0}", raw_rpm);
+        } else if is_gear.is_some() {
+            text.0 = format!("Gear: {:.0}", drivetrain.current_gear)
         }
     }
 
