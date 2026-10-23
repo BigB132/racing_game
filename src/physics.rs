@@ -1,5 +1,4 @@
-use core::ffi;
-use std::time::Duration;
+use std::{f32::consts::TAU, time::Duration};
 
 use bevy::{math::Quat, prelude::*, time::common_conditions::on_timer};
 use crate::{Car, Drivetrain, Ground, Wheel};
@@ -43,11 +42,13 @@ pub const K_ARB_REAR: f32 = 22000.0;
 pub const R: f32 = 0.36;
 pub const I_W: f32 = 1.6;
 pub const C_RR: f32 = 0.012;
-pub const M2: f32 = 1.0;
-pub const B: f32 = 10.0;
-pub const C: f32 = 1.45;
-pub const E: f32 = -0.6;
-pub const V_MIN: f32 = 0.8;
+pub const MU_TIRE: f32 = 1.35;
+pub const B_LONG: f32 = 13.0;
+pub const C_LONG: f32 = 1.60;
+pub const B_LAT: f32 = 15.5;
+pub const C_LAT: f32 = 1.40;
+pub const E: f32 = -0.4;
+pub const V_MIN: f32 = 0.5;
 
 pub const K_CRASH: f32 = 250000.0;
 pub const C_CRASH: f32 = 15000.0;
@@ -97,12 +98,12 @@ fn tick_physics (
     let mut rear_left_f_raw: f32 = 0.0;
     let mut rear_right_f_raw: f32 = 0.0;
 
-
+// anchors zu niedrig / hoch ???
     let p_rel_anchors: [Vec3; 4] = [
-        Vec3::new(-0.75, 0.65,  1.25),
-        Vec3::new( 0.75, 0.65,  1.25),
-        Vec3::new(-0.78, 0.67, -1.25),
-        Vec3::new( 0.78, 0.67, -1.25),
+        Vec3::new(-0.76, 0.55,  1.22),
+        Vec3::new( 0.76, 0.55,  1.22),
+        Vec3::new(-0.79, 0.57, -1.22),
+        Vec3::new( 0.79, 0.57, -1.22),
     ];
     
 
@@ -221,33 +222,53 @@ fn tick_physics (
             }
         }
 
-        let d: f32 = M2 * wheel.f_z;
-        let f_x0 = d * (C * (B * wheel.s - E * (B * wheel.s - (B * wheel.s).atan())).atan()).sin();
-        let f_y0 = -d * (C * (B * wheel.a_atan - E * (B * wheel.a_atan - (B * wheel.a_atan).atan())).atan()).sin();
-
-        let f_total = (f_x0 * f_x0 + f_y0 * f_y0).sqrt();
+        let tire_grip_mult = if wheel.front == 0 { 1.0 } else { 1.08 };
+        let d: f32 = MU_TIRE * tire_grip_mult * wheel.f_z;
         
-        wheel.f_x = f_x0 * (d / f_total.max(0.0001)).min(1.0);
-        wheel.f_y = f_y0 * (d / f_total.max(0.0001)).min(1.0);
-
-        wheel.f_roll = -C_RR * wheel.f_z * (wheel.v_x / V_MIN).clamp(-1.0, 1.0) * wheel.f_i;
-
-        let max_slip_allowed = 0.18;
-        if wheel.s > max_slip_allowed {
-            wheel.t_drive *= (max_slip_allowed / wheel.s).clamp(0.2, 1.0);
+        let current_slip = (wheel.w * R - wheel.v_x) / V_MIN.max(wheel.v_x.abs());
+        let max_slip_allowed = 0.12;
+        if current_slip > max_slip_allowed && wheel.t_drive > 0.0 {
+            wheel.t_drive *= (max_slip_allowed / current_slip).clamp(0.1, 1.0);
         }
 
+        let effective_brake = if current_slip < -0.14 {
+            wheel.t_break * 0.25
+        } else {
+            wheel.t_break
+        };
+
         let w_free: f32 = wheel.w + ((wheel.t_drive - wheel.f_x * R) / I_W) * time.delta_secs();
-        wheel.w = w_free.signum() * (w_free.abs() - (wheel.t_break.abs() / I_W) * time.delta_secs()).max(0.0);
+        wheel.w = w_free.signum() * (w_free.abs() - (effective_brake.abs() / I_W) * time.delta_secs()).max(0.0);
 
-        wheel.spin_angle = wheel.spin_angle + wheel.w * time.delta_secs() % std::f32::consts::TAU;
+        if wheel.f_z <= 0.0 && wheel.t_drive <= 0.0 {
+            wheel.w = wheel.w.lerp(wheel.v_x / R, 5.0 * time.delta_secs());
+        }
 
-        let base_rot: Quat = if wheel.side == 0 { Quat::from_rotation_x(90.0_f32.to_radians()) } else { Quat::from_rotation_x(-90.0_f32.to_radians()) };
+        wheel.s = ((wheel.w * R - wheel.v_x) / V_MIN.max(wheel.v_x.abs())).clamp(-1.0, 1.0);
+        wheel.a_atan = wheel.v_y.atan2(wheel.v_x.abs().max(V_MIN));
 
-        wheel_transform.rotation = car.q_car * Quat::from_rotation_y(wheel.steer_angle) * Quat::from_rotation_x(wheel.spin_angle) * base_rot * Quat::from_rotation_z(-90.0_f32.to_radians());
+        let bx = B_LONG * wheel.s;
+        let f_x0 = d * (C_LONG * (bx - E * (bx - bx.atan())).atan()).sin();
+
+        let by = B_LAT * wheel.a_atan;
+        let f_y0 = -d * (C_LAT * (by - E * (by - by.atan())).atan()).sin();
+
+        let f_total = ((f_x0 * 0.85).powi(2) + f_y0.powi(2)).sqrt();
+        let scale = (d / f_total.max(0.0001)).min(1.0);
+
+        wheel.f_x = f_x0 * scale;
+        wheel.f_y = f_y0 * scale;
         
+        if wheel.v_x.abs() < V_MIN {
+            let low_speed_damp = (-wheel.v_y * 4500.0).clamp(-d, d);
+            wheel.f_y = wheel.f_y.lerp(low_speed_damp, 1.0 - (wheel.v_x.abs() / V_MIN));
+        }
+
+        wheel.f_roll = -C_RR * wheel.f_z * (wheel.v_x / V_MIN).clamp(-1.0, 1.0) * wheel.f_i;
+        wheel.spin_angle = (wheel.spin_angle + wheel.w * time.delta_secs()).rem_euclid(TAU);
+
         wheel.f = wheel.f_z * wheel.d_norm + wheel.f_x * wheel.f_i + wheel.f_y * wheel.r_i + wheel.f_roll;
-        
+
         sum_f += wheel.f;
         sum_r += (wheel.p_contact - p_com).cross(wheel.f);
     }
@@ -300,12 +321,9 @@ fn tick_physics (
     sum_f += f_gravity + f_drag + f_down;
     let a_acc = sum_f / M;
 
-    // Car velocity
     car.v_car += a_acc * time.delta_secs();
-    // Car position
     let v_car = car.v_car;
     car_transform.translation += v_car * time.delta_secs();
-
 
     let r_car_mat = Mat3::from_quat(car.q_car);
     let i_inv = Mat3::from_diagonal(Vec3::new(1.0 / I_XX, 1.0 / I_YY, 1.0 / I_ZZ));
@@ -314,6 +332,28 @@ fn tick_physics (
     let w_quat = Quat::from_xyzw(car.w_car.x, car.w_car.y, car.w_car.z, 0.0);
     car.q_car = (car.q_car + (w_quat * car.q_car) * (0.5 * time.delta_secs())).normalize();
     car_transform.rotation = car.q_car;
+
+
+    let new_d_down = car.q_car * Vec3::NEG_Y;
+    for (wheel, mut wheel_transform) in &mut wheels {
+        let anchor_idx = (wheel.front as usize) * 2 + (wheel.side as usize);
+        let new_p_anchor = car_transform.translation + car.q_car * p_rel_anchors[anchor_idx];
+
+        wheel_transform.translation = new_p_anchor + new_d_down * wheel.l_hit;
+
+        let base_rot: Quat = if wheel.side == 0 {
+            Quat::from_rotation_x(90.0_f32.to_radians())
+        } else {
+            Quat::from_rotation_x(-90.0_f32.to_radians())
+        };
+
+        wheel_transform.rotation = car.q_car
+            * Quat::from_rotation_y(wheel.steer_angle)
+            * Quat::from_rotation_x(wheel.spin_angle)
+            * base_rot
+            * Quat::from_rotation_z(-90.0_f32.to_radians());
+    }
+
 
     cam_transform.translation = car_transform.translation + CAMERA_MODE[car.cam_mode];
 
@@ -333,7 +373,7 @@ pub fn update_drivetrain(
         drivetrain.shift_timer = (drivetrain.shift_timer - time.delta_secs()).max(0.0);
     }
     if drivetrain.shift_cooldown > 0.0 {
-        drivetrain.shift_cooldown = drivetrain.shift_cooldown - time.delta_secs().max(0.0);
+        drivetrain.shift_cooldown = (drivetrain.shift_cooldown - time.delta_secs()).max(0.0);
     }
 
     let mut rear_w_sum = 0.0;
@@ -349,6 +389,7 @@ pub fn update_drivetrain(
 
     let avg_rear_w = rear_w_sum / 2.0;
     let avg_front_w = front_w_sum / 2.0;
+    let avg_drive_w  =avg_rear_w * 0.68 + avg_front_w * 0.32;
 
     let gear_idx = (drivetrain.current_gear + 1) as usize;
     let gear_ratio = drivetrain.gear_ratios[gear_idx];
@@ -397,12 +438,12 @@ pub fn update_drivetrain(
 
     let t_engine_max = {
         let rpm_clamped: f32 = drivetrain.rpm.clamp(800.0, 7200.0);
-        if rpm_clamped < 2000.0 {
-            280.0 + (rpm_clamped - 800.0) * (200.0 / 1200.0)
-        } else if rpm_clamped <= 5500.0 {
-            480.0 + (rpm_clamped - 2000.0) * (40.0 / 3500.0)
+        if rpm_clamped < 2500.0 {
+            420.0 + (rpm_clamped - 800.0) * (380.0 / 1700.0)
+        } else if rpm_clamped <= 4500.0 {
+            800.0
         } else {
-            520.0 - (rpm_clamped - 5500.0) * (140.0 / 1700.0)
+            800.0 - (rpm_clamped - 4500.0) * (160.0 / 2700.0)
         }
     };
 
@@ -410,18 +451,23 @@ pub fn update_drivetrain(
         0.0
     } else if drivetrain.throttle > 0.05 {
         t_engine_max * drivetrain.throttle
+    } else if avg_drive_w > 1.5 {
+        -90.0 
     } else {
-        -80.0 
+        0.0
     };
 
     let t_drive_total = t_engine * total_ratio * drivetrain.drivetrain_effeciency * drivetrain.clutch;
-    let t_per_drive_wheel = t_drive_total / 2.0;
+    
+    let rear_slip_excess = (avg_rear_w - avg_front_w).max(0.0);
+    let front_split = (0.32 + (rear_slip_excess * 0.015)).clamp(0.3, 0.45);
+    let rear_split = 1.0 - front_split;
 
     for mut wheel in &mut wheels {
-        if wheel.front != 0 {
-            wheel.t_drive = t_per_drive_wheel;
+        if wheel.front == 0 {
+            wheel.t_drive = (t_drive_total * front_split) / 2.0;
         } else {
-            wheel.t_drive = 0.0;
+            wheel.t_drive = (t_drive_total * rear_split) / 2.0;
         }
     }
 

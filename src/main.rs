@@ -157,32 +157,32 @@ fn spawn_car (
     asset_server: Res<AssetServer>
 ) {
     // Car
+    commands.spawn((
+        SceneEntity,
+        Car::default(),
+        Drivetrain::default(),
+        Player,
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("car/car.glb"))),
+        Transform::from_xyz(0.0, 3.0, 0.0),
+    ));
+    
+    let wheels: [[f32; 6]; 4] = [
+        // side, front, x, y, z, rot
+        [0.0, 0.0, 0.8, 2.0, 0.9, 90.0],
+        [1.0, 0.0, -0.8, 2.0, 0.9, -90.0],
+        [0.0, 1.0, 0.8, 2.0, -0.9, 90.0],
+        [1.0, 1.0, -0.8, 2.0, -0.9, -90.0],
+    ];
+        
+    for wheel in wheels {
         commands.spawn((
             SceneEntity,
-            Car::default(),
-            Drivetrain::default(),
-            Player,
-            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("car/car.glb"))),
-            Transform::from_xyz(0.0, 3.0, 0.0),
-        ));
-        
-        let wheels: [[f32; 6]; 4] = [
-            // side, front, x, y, z, rot
-            [0.0, 0.0, 0.8, 2.0, 0.9, 90.0],
-            [1.0, 0.0, -0.8, 2.0, 0.9, -90.0],
-            [0.0, 1.0, 0.8, 2.0, -0.9, 90.0],
-            [1.0, 1.0, -0.8, 2.0, -0.9, -90.0],
-            ];
-            
-            for wheel in wheels {
-                commands.spawn((
-                    SceneEntity,
-                    Wheel {
-                        side: wheel[0] as u8,
-                        front: wheel[1] as u8,
-                        ..default()
-                    },
-                    WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("car/wheel.glb"))),
+            Wheel {
+                side: wheel[0] as u8,
+                front: wheel[1] as u8,
+                ..default()
+            },
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("car/wheel.glb"))),
             Transform::from_xyz(wheel[2], wheel[3], wheel[4]).with_rotation(Quat::from_rotation_y(wheel[5].to_radians())),
         ));
     }
