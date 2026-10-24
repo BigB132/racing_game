@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8" />
+    <title>Racing Game</title>
+    
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #0e0e0e;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        canvas {
+            display: block;
+            outline: none;
+        }
+    </style>
+    <base href="/racing_game/" />
+<link rel="modulepreload" href="/racing_game/racing_game-8af18e2fd19e8394.js" crossorigin="anonymous" integrity="sha384-9B/h7ZvtGUesU+crDIr6ZzxvYHzPaAtMyhZZzv8J5UPlTDPTg/7Gz/zoRVHTn8Ab"><link rel="preload" href="/racing_game/racing_game-3039137c7adda23a_bg.wasm" crossorigin="anonymous" integrity="sha384-ZDUbZR71lmHj6K1k/d/ZExg60HnG709CecmwKczA6otp/R/mW8SvSn2IRajGdGgq" as="fetch" type="application/wasm"></head>
+<body>
+
+<script type="module">
+import init, * as bindings from '/racing_game/racing_game-8af18e2fd19e8394.js';
+const wasm = await init({ module_or_path: '/racing_game/racing_game-3039137c7adda23a_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script></body>
+</html>
