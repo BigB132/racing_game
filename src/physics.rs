@@ -19,18 +19,25 @@ impl Plugin for PhysicsPlugin {
 }
 
 
-// constants 
+// =================
+// CONSTANTS
+// ================= 
+
+// CHASSSIS, MASS & INERTIA 
 pub const M: f32 = 1715.0;
 pub const G: f32 = 9.81;
 pub const H_COM: f32 = 0.22;
 pub const I_XX: f32 = 2400.0;
 pub const I_YY: f32 = 2750.0;
 pub const I_ZZ: f32 = 620.0;
+
+// AERODYNAMICS
 pub const P: f32 = 1.225;
 pub const C_W: f32 = 0.31;
 pub const A: f32 = 2.07;
 pub const C_L: f32 = 0.42;
 
+// SUSPENSION & ANTI-ROLL BARS
 pub const K_FRONT: f32 = 65000.0;
 pub const K_REAR: f32 = 90000.0;
 pub const C_BUMP: f32 = 4800.0;
@@ -39,6 +46,7 @@ pub const L_REST: f32 = 0.3;
 pub const K_ARB_FRONT: f32 = 18000.0;
 pub const K_ARB_REAR: f32 = 22000.0;
 
+// WHEELS & TIRES
 pub const R: f32 = 0.36;
 pub const I_W: f32 = 1.6;
 pub const C_RR: f32 = 0.012;
@@ -98,7 +106,6 @@ fn tick_physics (
     let mut rear_left_f_raw: f32 = 0.0;
     let mut rear_right_f_raw: f32 = 0.0;
 
-// anchors zu niedrig / hoch ???
     let p_rel_anchors: [Vec3; 4] = [
         Vec3::new(-0.76, 0.55,  1.22),
         Vec3::new( 0.76, 0.55,  1.22),
@@ -112,7 +119,7 @@ fn tick_physics (
     let p_com: Vec3 = car_transform.translation + car.q_car * Vec3::new(0.0, H_COM, 0.0);
 
 
-    for (mut wheel, mut wheel_transform) in &mut wheels {
+    for (mut wheel, _wheel_transform) in &mut wheels {
         // suspension
         let p_anchor: Vec3;
         if wheel.front == 0 {
@@ -136,19 +143,18 @@ fn tick_physics (
         let hits = ray_cast.cast_ray(ray, &MeshRayCastSettings::default().with_filter(&filter));
         
         if let Some((_entity, hit_data)) = hits.first() {
-            // println!("hit entity {:?} at point {}", entity, hit_data.point);
             wheel.l_hit = hit_data.distance.min(L_REST + R) - R;
             wheel.d_norm = hit_data.normal;
             wheel.p_contact = hit_data.point;
         } else {
-            // println!("didn't hit any entity");
             wheel.l_hit = L_REST;
             wheel.d_norm = Vec3::new(0.0, 0.0, 0.0);
             wheel.p_contact = Vec3::new(0.0, 0.0, 0.0);
         }
 
         // update wheel pos and rot
-        wheel_transform.translation = p_anchor + d_down * wheel.l_hit;
+        // not needed anymore as this happens at the end of tick_pyhiscs again
+        // wheel_transform.translation = p_anchor + d_down * wheel.l_hit;
         
         wheel.x = (L_REST - wheel.l_hit).max(0.0);
 
@@ -243,9 +249,6 @@ fn tick_physics (
         if wheel.f_z <= 0.0 && wheel.t_drive <= 0.0 {
             wheel.w = wheel.w.lerp(wheel.v_x / R, 5.0 * time.delta_secs());
         }
-
-        wheel.s = ((wheel.w * R - wheel.v_x) / V_MIN.max(wheel.v_x.abs())).clamp(-1.0, 1.0);
-        wheel.a_atan = wheel.v_y.atan2(wheel.v_x.abs().max(V_MIN));
 
         let bx = B_LONG * wheel.s;
         let f_x0 = d * (C_LONG * (bx - E * (bx - bx.atan())).atan()).sin();

@@ -239,11 +239,6 @@ fn controls(
     } else {
         drivetrain.throttle = 0.0;
     }
-    
-    // let brake_torque = if keys.pressed(KeyCode::KeyS) { 800.0 } else { 0.0 };
-    // for mut wheel in &mut wheels {
-    //     wheel.t_break = brake_torque;
-    // }
 
     let braking = keys.pressed(KeyCode::KeyS);
     for mut wheel in &mut wheels {
