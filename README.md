@@ -2,7 +2,7 @@
 
 This game is using Bevy + Rust to run.
 The physics are fully self made and build from ground up. The game engines phyiscs are not being used.  
-AI was is involved by explaining the physics to me, but didn't code a single line.  
+AI was involved by explaining the physics to me, but didn't code a single line.  
 
 Play here: [https://bigb132.github.io/racing_game](https://bigb132.github.io/racing_game) (might lag, which is why I recommend using the windows build to run)
 
